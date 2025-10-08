@@ -9,10 +9,7 @@ dotenv.config();
 const app = express();
 app.use(
   cors({
-    origin: [
-      "http://localhost:5173",
-      "https://talk-to-data-frontend.onrender.com",
-    ],
+    origin: ["https://talk-to-data-frontend.onrender.com"],
   })
 );
 
@@ -31,12 +28,13 @@ app.post("/api/query", async (req, res) => {
     }
 
     let rows = [];
+    let queryError = null;
     try {
       const result = await pool.query(sql);
-
       rows = result.rows;
     } catch (e) {
       console.warn("⚠️ SQL execution error:", e.message);
+      queryError = e.message;
     }
 
     res.json({
@@ -44,7 +42,7 @@ app.post("/api/query", async (req, res) => {
       from,
       rows,
       answer: rows.length ? `Found ${rows.length} rows.` : "No results",
-      error: sqlError,
+      error: queryError || sqlError,
     });
   } catch (e) {
     console.error("❌ Query error:", e.message);
