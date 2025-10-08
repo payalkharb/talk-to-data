@@ -10,7 +10,7 @@ import {
 } from "react-icons/fa";
 import SalesChart from "./components/SalesChart.jsx";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+const API_URL = "https://talk-to-data-cd0d.onrender.com/";
 
 export default function App() {
   const [prompt, setPrompt] = useState("");
