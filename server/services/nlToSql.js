@@ -1,101 +1,91 @@
-// server/services/nlToSql.js
-import fetch from "node-fetch";
+import OpenAI from "openai";
+import { getSchemaDescription } from "./getSchema.js";
+import dotenv from "dotenv";
+import path from "path";
+import { fileURLToPath } from "url";
 
-const HF_URL =
-  "https://api-inference.huggingface.co/models/defog/sqlcoder-7b-2";
-const HF_API_KEY = process.env.HF_API_KEY;
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.join(__dirname, "../.env") });
 
-// Fallback rule: e.g. "sales in 2023 in delhi"
-function fallbackRule(question, schemaDesc) {
-  const q = question.toLowerCase();
-  const yearMatch = q.match(/\b(20\d{2}|19\d{2})\b/);
-  const cityMatch =
-    q.match(/in\s+([a-z\s]+)$/i) ||
-    q.match(/in\s+([a-z\s]+?)\s+(for|of|by|section|category|$)/i);
+const client = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
 
-  if (
-    schemaDesc.includes("sales") &&
-    (q.includes("sale") || q.includes("sales"))
-  ) {
-    const year = yearMatch ? yearMatch[0] : null;
-    const city = cityMatch ? cityMatch[1].trim() : null;
-    let where = [];
-    if (year) where.push(`EXTRACT(YEAR FROM sale_date) = ${year}`);
-    if (city) where.push(`LOWER(city) = LOWER('${city}')`);
-    const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
-    const sql = `
-      SELECT date_trunc('month', sale_date) AS month, SUM(amount) AS total
-      FROM sales
-      ${whereSql}
-      GROUP BY 1
-      ORDER BY 1
-    `;
-    return sql;
+// Helper function to extract column names from schema
+function extractColumnNames(schema) {
+  const matches = schema.matchAll(/"([^"]+)"/g);
+  const columns = [];
+  for (const match of matches) {
+    columns.push(match[1]);
   }
-  return null;
+  return columns;
 }
 
-export async function nlToSql(question, schemaDesc = "") {
-  // Try HuggingFace API
-  if (HF_API_KEY) {
-    try {
-      const prompt = `Convert this into a PostgreSQL SELECT query.
-Schema:
-${schemaDesc}
+export async function nlToSql(question) {
+  try {
+    const schema = await getSchemaDescription();
+
+    if (!schema || schema.length < 10) {
+      return { sql: null, from: "openai", error: "Schema not available" };
+    }
+
+    const prompt = `
+You are an expert SQL developer.
+Generate only a SQL query (Postgres dialect) based on this schema:
+
+${schema}
 
 Question: "${question}"
 
 Rules:
-- Output ONLY the SQL query (no markdown, no explanation).
-- Use correct table/column names from schema.
-- Use date_trunc for monthly aggregation.
+- Output ONLY the SQL query, no explanation, no markdown.
+- Always wrap table and column names in double quotes.
+- Do NOT add LIMIT unless explicitly asked in the question (e.g., "limit 5", "top 10").
 `;
 
-      const r = await fetch(HF_URL, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${HF_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          inputs: prompt,
-          parameters: { max_new_tokens: 300 },
-        }),
-      });
+    const response = await client.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0,
+      max_tokens: 256,
+    });
 
-      const raw = await r.text(); // <-- get raw response first
-      console.log("HF raw output:", raw);
+    const sql = response.choices[0]?.message?.content?.trim();
 
-      let out;
-      try {
-        out = JSON.parse(raw); // only try parsing if JSON
-      } catch {
-        throw new Error("HF did not return JSON: " + raw);
-      }
-
-      let text = "";
-      if (Array.isArray(out) && out[0]?.generated_text)
-        text = out[0].generated_text;
-      else if (out?.generated_text) text = out.generated_text;
-      else if (typeof out === "string") text = out;
-
-      text = String(text)
-        .replace(/```sql|```/g, "")
-        .trim();
-
-      if (text && /^\s*select\b/i.test(text)) {
-        return { sql: text, from: "hf" };
-      }
-    } catch (e) {
-      console.warn("HF error, falling back:", e.message);
+    if (!sql) {
+      return { sql: null, from: "openai", error: "No SQL generated" };
     }
+
+    console.log("🔹 Raw SQL from OpenAI:", sql);
+
+    let cleanedSql = sql
+      .replace(/```/g, "") // remove markdown fences
+      .replace(/\s+/g, " ") // collapse whitespace
+      .trim();
+
+    // 🚫 Remove LIMIT unless user explicitly asked in the question
+    if (!/limit\s*\d+/i.test(question) && !/top\s*\d+/i.test(question)) {
+      cleanedSql = cleanedSql.replace(/\s+LIMIT\s+\d+/gi, "");
+    }
+
+    // Ensure exactly one semicolon at the end
+    cleanedSql = cleanedSql.replace(/;+$/, "");
+    cleanedSql = cleanedSql + ";";
+
+    // ✅ Step: Extract columns from schema
+    const columnNames = extractColumnNames(schema);
+
+    // ✅ Step: Wrap column names in double quotes in SQL if not lowercase
+    columnNames.forEach((col) => {
+      const regex = new RegExp(`\\b${col}\\b`, "g");
+      cleanedSql = cleanedSql.replace(regex, `"${col}"`);
+    });
+
+    console.log("✅ Final SQL sent to DB:", cleanedSql);
+
+    return { sql: cleanedSql, from: "openai", error: null };
+  } catch (err) {
+    console.error("❌ nlToSql Error:", err.message);
+    return { sql: null, from: "openai", error: err.message };
   }
-
-  // Fallback
-  const fb = fallbackRule(question, schemaDesc);
-  if (fb) return { sql: fb, from: "fallback" };
-
-  // Safe default
-  const safe = "SELECT 'No mapping available' AS message";
-  return { sql: safe, from: "none" };
 }

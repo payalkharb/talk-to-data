@@ -1,0 +1,8 @@
+ALTER TABLE "public"."maruti"
+ALTER COLUMN work_life_balance TYPE numeric USING work_life_balance::numeric,
+ALTER COLUMN skill_development TYPE numeric USING skill_development::numeric,
+ALTER COLUMN salary_and_benefits TYPE numeric USING salary_and_benefits::numeric,
+ALTER COLUMN job_security TYPE numeric USING job_security::numeric,
+ALTER COLUMN "career_growth" TYPE numeric USING "career_growth"::numeric,
+ALTER COLUMN "Overall_rating" TYPE numeric USING "Overall_rating"::numeric,
+ALTER COLUMN "work_satisfaction" TYPE numeric USING "work_satisfaction"::numeric;

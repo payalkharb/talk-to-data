@@ -1,22 +1,23 @@
-// src/db.js
-import dotenv from "dotenv";
 import pkg from "pg";
-
-dotenv.config();
+import dotenv from "dotenv";
+import path from "path";
+import { fileURLToPath } from "url";
 
 const { Pool } = pkg;
 
-// Helper to handle Supabase SSL requirement
-function falseLike(v) {
-  if (!v) return false;
-  return ["0", "false", "no", "off"].includes(String(v).toLowerCase());
-}
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.join(__dirname, "./.env") });
 
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: {
-    rejectUnauthorized: !falseLike(process.env.PG_SSL_REJECT_UNAUTHORIZED),
-  },
+  connectionString: process.env.SUPABASE_DB_URL, // full pooler URL from Supabase dashboard
+  ssl: { rejectUnauthorized: false }, // required for Supabase
+});
+
+// Debug
+console.log("DB Connected via Session Pooler");
+
+pool.on("error", (err) => {
+  console.error("❌ Unexpected PG pool error:", err.message);
 });
 
 export default pool;
