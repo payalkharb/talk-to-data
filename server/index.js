@@ -7,7 +7,15 @@ import pool from "./db.js"; // ✅ reuse the shared pool
 dotenv.config();
 
 const app = express();
-app.use(cors({ origin: "http://localhost:5173" }));
+app.use(
+  cors({
+    origin: [
+      "http://localhost:5173",
+      "https://talk-to-data-frontend.onrender.com",
+    ],
+  })
+);
+
 app.use(express.json());
 
 // API route
