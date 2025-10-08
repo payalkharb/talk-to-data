@@ -9,9 +9,12 @@ dotenv.config();
 const app = express();
 app.use(
   cors({
-    origin: ["https://talk-to-data-frontend.onrender.com"],
+    origin: "*",
+    methods: ["GET", "POST", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
+app.options("*", cors());
 
 app.use(express.json());
 
